@@ -5,7 +5,7 @@
 ```
 长江有色网 API  →  AES 解密  →  Excel  →  企微群（摘要 + 附件）
                                     ↑
-                             config.yaml（cron / webhook，热加载）
+                             config.yaml（热加载）
 ```
 
 ---
@@ -15,11 +15,12 @@
 ```bash
 pip install -r requirements.txt
 
-cp config.example.yaml config.yaml     # 填入真实 webhook
-python3 run.py --dry-run               # 只抓取导出，不推送
-python3 run.py                         # 抓取 + 推送企微
-python3 scheduler.py                   # 常驻定时执行
+python3 run.py --dry-run     # 只抓取导出，不推送
+python3 run.py               # 抓取 + 推送企微
+python3 scheduler.py         # 常驻定时执行
 ```
+
+配置开箱即用，`config.yaml` 已含 webhook。
 
 ---
 
@@ -47,93 +48,86 @@ python3 scheduler.py                   # 常驻定时执行
 
 | 文件 | 作用 |
 |---|---|
+| `config.yaml` | 唯一配置源，热加载 |
 | `ccmn_cjxh.py` | 抓取 + 解密 + Excel 导出（可独立 CLI 使用） |
 | `wecom.py` | 企微机器人：markdown 摘要 + 文件上传推送 |
 | `config.py` | YAML 加载、`${ENV}` 插值、校验、热更新检测 |
 | `run.py` | 一次性任务编排：抓取 → 导出 → 推送 |
 | `scheduler.py` | 常驻调度器，按 cron 执行，配置热加载 |
-| `scripts/sync_workflow_cron.py` | 把 config 的 cron 同步进 GitHub Actions workflow |
-| `config.example.yaml` | 配置模板（入库） |
-| `config.yaml` | 实际配置，**含凭据，已 gitignore** |
+| `.github/workflows/ccmn-push.yml` | GitHub Actions 定时部署 |
 
 ---
 
 ## 配置
 
-全部配置项见 `config.example.yaml`。常用：
+全部配置项见 `config.yaml` 内注释。常用：
 
 ```yaml
 market: 长江现货          # 或 长江综合
 markets_all: false        # true = 全部市场，每市场一个 sheet
 
 schedule:
-  cron: "*/30 * * * *"    # 标准 5 段 cron
+  cron: "*/30 * * * *"    # 仅本地 scheduler.py 生效
   timezone: Asia/Shanghai
   run_on_start: false
 
 wecom:
   enabled: true
-  webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WECOM_WEBHOOK_KEY}"
+  webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
   send_summary: true      # markdown 行情摘要
   send_file: true         # Excel 附件
   summary_top_n: 10
   notify_on_error: true   # 失败时群内告警
 
 push:
-  skip_if_unchanged: false   # true = 数据没变就不推（见下）
+  skip_if_unchanged: false   # true = 数据没变就不推
 ```
-
-**`${ENV}` 插值**：任意字符串支持 `${VAR}` 与 `${VAR:-默认值}`，CI 里用 GitHub Secret 注入凭据。
 
 **热加载**：`scheduler.py` 每 2 秒检查 `config.yaml` 的 mtime，改动后立即重载并按新 cron 重排，**不用重启**。配置写坏时保留上一份继续跑，只打错误日志。
 
-### 关于 `skip_if_unchanged`
+**`${ENV}` 插值**：任意字符串支持 `${VAR}` 与 `${VAR:-默认值}`。临时换群不用改文件：
 
-数据每天只在 10 点左右更新一次，而 cron 是每 30 分钟。默认 `false` = 每次都推（一天 48 条）。想只在数据真变化时推，设 `true` —— 按品名/价格/涨跌/发布时间做 SHA256 指纹比对，存在 `.push_state.json`。
+```bash
+WECOM_WEBHOOK_KEY=<另一个key> python3 run.py
+# 前提是把 config.yaml 的 webhook 改成 ${WECOM_WEBHOOK_KEY:-<默认key>} 形式
+```
+
+**`skip_if_unchanged`**：数据每天只更新一次。高频 cron 下设 `true` 可避免重复刷屏 —— 按品名/价格/涨跌/发布时间做 SHA256 指纹比对，状态存 `.push_state.json`。固定每天一次后无所谓。
 
 ---
 
 ## 定时执行
 
-### 方式一：本地常驻（推荐，配置热加载）
+### 方式一：本地常驻（配置热加载，准点）
 
 ```bash
-python3 scheduler.py                    # 前台
-nohup python3 scheduler.py > /dev/null 2>&1 &   # 后台
+python3 scheduler.py                              # 前台
+nohup python3 scheduler.py > /dev/null 2>&1 &     # 后台
 ```
 
-macOS 开机自启可用 launchd，Linux 用 systemd。
+改 `config.yaml` 的 cron 即时生效。macOS 开机自启用 launchd，Linux 用 systemd。
 
 ### 方式二：GitHub Actions
 
-`.github/workflows/ccmn-push.yml` 已配好，支持定时 + 手动触发（`workflow_dispatch`，可选 dry-run / force）。
+`.github/workflows/ccmn-push.yml` 已配好，推上去就跑。支持手动触发（Actions → Run workflow，可选 dry-run / force）。
 
-**部署三步**：
+**改定时**：直接改 workflow 里的 `- cron:` 那行。**读不到 `config.yaml`** —— GitHub 的 `schedule` 必须写死在 workflow 文件里，这是平台限制。
 
-1. 仓库 Settings → Secrets and variables → Actions → New secret
-   - Name：`WECOM_WEBHOOK_KEY`
-   - Value：webhook URL 里 `key=` 后面那串
-2. Actions 页面确认 workflow 已启用
-3. 手动 Run workflow 验证一次
+时间是 **UTC**，北京时间 = UTC + 8：
 
-**改 cron 的正确姿势**（GitHub Actions 的 `schedule` 只能写死在 workflow 里，运行时读不到 yaml）：
-
-```bash
-# 1. 改 config.example.yaml 的 schedule.cron
-# 2. 同步进 workflow（自动做时区换算，GH 只认 UTC）
-python3 scripts/sync_workflow_cron.py
-# 3. 提交这两个文件
-```
-
-`--check` 模式可用于 CI 校验两边是否一致。换算规则：小时位是 `*` 或 `*/n` 时与时区无关原样使用；是具体值时按配置时区偏移前移（如 `30 10 * * *` @ Asia/Shanghai → `30 2 * * *` UTC）。
-
-#### GitHub Actions 的三个已知限制
-
-| 限制 | 说明 |
+| 需求 | workflow cron |
 |---|---|
-| **不准时** | `schedule` 是尽力而为，高峰期常延迟 5–20 分钟，偶尔跳过。对准点要求高就用本地常驻。 |
-| **会自动停** | 仓库 60 天无提交活动，定时 workflow 会被 GitHub 自动禁用，需手动重新启用。 |
-| **耗额度** | 私有仓库定时任务算 Actions 分钟数。每 30 分钟 ≈ 1440 次/月，按每次 ~1 分钟算接近免费额度（2000 分钟/月）上限。跑久了建议放宽到每小时或每天。 |
+| 每 30 分钟（当前，调试用） | `*/30 * * * *` |
+| 每天北京 10:30 | `30 2 * * *` |
+| 工作日北京 10:30 | `30 2 * * 1-5` |
+
+#### 三个已知限制
+
+| 限制 | 应对 |
+|---|---|
+| **不准时** | `schedule` 尽力而为，高峰期常延迟 5–20 分钟，偶尔跳过。要准点用本地常驻 |
+| **60 天无活动自动禁用** | 已内置保活：workflow 检测到距上次提交 ≥45 天时自动推一个空提交，计时器归零。需要 `permissions: contents: write`（已配） |
+| **耗额度** | 私有仓定时任务算 Actions 分钟。每 30 分钟 ≈ 1440 次/月 × ~1 分钟，接近免费额度（2000 分钟/月）上限。调完切每天一次后 ≈ 30 分钟/月，可忽略 |
 
 ---
 
@@ -159,10 +153,14 @@ python3 scheduler.py -c other.yaml
 
 ## 安全
 
-- **`config.yaml` 不入库**（`.gitignore` 已排除）—— 里面有 webhook key，拿到的人可以往群里发任意消息
-- CI 中凭据走 GitHub Secret，由 `${WECOM_WEBHOOK_KEY}` 注入，`config.example.yaml` 只留占位
-- 日志里的 webhook 自动脱敏（`key=c43a****`）
-- 直接依赖全部 exact-pin（`requirements.txt`），升级走 PR review
+⚠️ **`config.yaml` 里的 webhook 是明文凭据，且已入库。**
+
+- 拿到 key 的人可以往群里发任意消息
+- **仓库必须保持私有**；转公开或加协作者前先换 key
+- 明文一旦提交就永久留在 git 历史里，删文件删不掉
+- 撤销方式：企微后台移除该群机器人重建，拿新 key 替换
+
+日志里的 webhook 会自动脱敏（`key=a5f1****`）。直接依赖全部 exact-pin（`requirements.txt`），升级走 PR review。
 
 ---
 
@@ -170,10 +168,10 @@ python3 scheduler.py -c other.yaml
 
 | 现象 | 排查 |
 |---|---|
-| `配置引用了环境变量 ${WECOM_WEBHOOK_KEY}，但它未设置` | 本地 `export WECOM_WEBHOOK_KEY=...`，CI 检查 Secret 是否配好 |
 | `企微返回 errcode=93000` | webhook key 失效或群机器人被移除 |
-| `文件超过企微 20MB 上限` | 企微 webhook 文件上限 20MB，本场景数据量远小于此，出现即说明数据异常 |
 | `抓取到 0 行数据` | 站点接口或加密方式变更，重新查 `ccmn-index.js` 里的 key 和接口路径 |
-| Actions 定时不触发 | 见上文三个已知限制；先用 workflow_dispatch 手动跑确认脚本本身没问题 |
+| `文件超过企微 20MB 上限` | 企微 webhook 文件上限 20MB，本场景远小于此，出现即说明数据异常 |
+| Actions 定时不触发 | 见上文三个限制；先用 Run workflow 手动跑确认脚本本身没问题 |
+| Actions 被禁用了 | Actions 页面点 "Enable workflow"；保活步骤会防止再次发生 |
 
-企微 webhook 机器人限流 20 条/分钟；`media_id` 有效期 3 天（本脚本每次上传都是新的，不受影响）。
+企微 webhook 机器人限流 20 条/分钟；`media_id` 有效期 3 天（每次上传都是新的，不受影响）。

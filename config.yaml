@@ -1,12 +1,11 @@
-# 长江有色网「长江现货」抓取 + 企微推送 配置
+# 长江现货抓取 + 企微推送 配置
 #
-# 使用方式：
-#   cp config.example.yaml config.yaml   然后填入真实值
+# 本文件入库。scheduler.py 每 2 秒检查一次改动，改完立即生效，无需重启。
 #
-# ⚠️ config.yaml 含 webhook 凭据，已在 .gitignore 中排除，不要提交到仓库。
+# ⚠️ webhook 含明文凭据，拿到的人可以往群里发任意消息。仓库务必保持私有。
+#    需要撤销只能在企微后台重建群机器人换 key。
 #
-# 任意字符串支持 ${ENV_VAR} 环境变量插值，CI 中用 GitHub Secret 注入。
-# 支持 ${VAR:-默认值} 语法。
+# 任意字符串支持 ${ENV_VAR} 与 ${ENV_VAR:-默认值} 插值。
 
 # ── 抓取目标 ────────────────────────────────────────────────
 market: 长江现货          # 可选：长江现货 / 长江综合
@@ -19,11 +18,14 @@ output:
   filename: "ccmn_{market}_{datetime}.xlsx"
   keep_days: 7            # 清理 N 天前的旧文件；0 = 不清理
 
-# ── 定时调度（本地 daemon 模式生效）─────────────────────────
+# ── 定时调度 ────────────────────────────────────────────────
+# ⚠️ 只对本地 scheduler.py 生效。
+#    GitHub Actions 的 schedule 读不到本文件（平台限制，必须写死在 workflow 里），
+#    改 Actions 的定时请直接改 .github/workflows/ccmn-push.yml 的 cron。
 schedule:
   # 标准 5 段 cron：分 时 日 月 周
-  #   "*/30 * * * *"  每 30 分钟
-  #   "30 10 * * *"   每天 10:30
+  #   "*/30 * * * *"  每 30 分钟（当前：调试用）
+  #   "30 10 * * *"   每天 10:30（数据每日 10:00-10:20 更新，10:30 跑较稳）
   #   "30 10 * * 1-5" 工作日 10:30
   cron: "*/30 * * * *"
   timezone: Asia/Shanghai
@@ -32,8 +34,7 @@ schedule:
 # ── 企业微信机器人 ──────────────────────────────────────────
 wecom:
   enabled: true
-  # 完整 webhook URL。CI 中由 ${WECOM_WEBHOOK_KEY} 注入 key
-  webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WECOM_WEBHOOK_KEY}"
+  webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=a5f127af-2d9c-42ad-a0ca-b680c812bfa4"
   send_summary: true      # 先发一条 markdown 行情摘要
   send_file: true         # 再发 Excel 文件
   summary_top_n: 10       # 摘要里展示的品名数量（按涨跌绝对值排序）
@@ -42,7 +43,8 @@ wecom:
 
 # ── 推送策略 ────────────────────────────────────────────────
 push:
-  # true = 数据与上次推送完全一致时跳过（每 30 分钟跑但数据每天只更新一次时很有用）
+  # true = 数据与上次推送完全一致时跳过。
+  # 数据每天只更新一次，高频 cron 下开启可避免重复刷屏；固定每天一次后无所谓。
   skip_if_unchanged: false
   state_file: .push_state.json
 

@@ -1,6 +1,3 @@
-# ⚠️ 含 webhook 凭据，禁止提交
-config.yaml
-
 # 运行产物
 output/
 logs/

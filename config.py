@@ -15,7 +15,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "config.yaml"
-EXAMPLE_CONFIG = ROOT / "config.example.yaml"
 
 # ${VAR} 或 ${VAR:-default}
 _ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
@@ -101,10 +100,7 @@ def load(cfg_path: Path | None = None) -> dict:
     """读配置。每次调用都重新读盘 —— 调用方无需重启即可拿到最新配置。"""
     path = _resolve_path(cfg_path)
     if not path.exists():
-        raise ConfigError(
-            f"配置文件不存在: {path}\n"
-            f"请先执行: cp {EXAMPLE_CONFIG.name} {path.name} 并填入真实值"
-        )
+        raise ConfigError(f"配置文件不存在: {path}")
     with path.open(encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
     if not isinstance(raw, dict):
