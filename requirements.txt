@@ -1,0 +1,6 @@
+# 直接依赖一律 exact-pin，升级走 PR review
+requests==2.32.3
+cryptography==44.0.1
+openpyxl==3.1.5
+PyYAML==6.0.2
+croniter==6.2.4

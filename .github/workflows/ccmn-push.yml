@@ -1,0 +1,91 @@
+name: 长江现货行情推送
+
+# ⚠️ 下面的 cron 由 scripts/sync_workflow_cron.py 从 config.example.yaml 生成，
+#    请勿手改。改 cron 的正确姿势：
+#        1. 改 config.example.yaml 的 schedule.cron
+#        2. 跑 python3 scripts/sync_workflow_cron.py
+#        3. 提交两个文件
+#    （GitHub Actions 的 schedule 只能写死在 workflow 里，无法运行时读 yaml）
+on:
+  schedule:
+    # cron-sync:begin
+    - cron: "*/30 * * * *"   # config.schedule.cron="*/30 * * * *" tz=Asia/Shanghai
+    # cron-sync:end
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "只抓取不推送"
+        type: boolean
+        default: false
+      force:
+        description: "忽略 skip_if_unchanged 强制推送"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ccmn-push
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 生成运行配置
+        # config.yaml 不入库；由 example + Secret 注入 key 生成
+        run: cp config.example.yaml config.yaml
+
+      # 让 skip_if_unchanged 在无状态 runner 上也能工作
+      - name: 恢复推送状态
+        uses: actions/cache/restore@v4
+        with:
+          path: .push_state.json
+          key: ccmn-push-state-${{ github.run_id }}
+          restore-keys: ccmn-push-state-
+
+      - name: 执行抓取与推送
+        env:
+          WECOM_WEBHOOK_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
+          TZ: Asia/Shanghai
+        run: |
+          python3 run.py \
+            ${{ inputs.dry_run  && '--dry-run' || '' }} \
+            ${{ inputs.force    && '--force'   || '' }}
+
+      - name: 保存推送状态
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .push_state.json
+          key: ccmn-push-state-${{ github.run_id }}
+
+      - name: 上传 Excel 产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccmn-xlsx-${{ github.run_id }}
+          path: output/*.xlsx
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: 上传日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccmn-logs-${{ github.run_id }}
+          path: logs/
+          retention-days: 7
+          if-no-files-found: ignore

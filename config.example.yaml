@@ -1,0 +1,52 @@
+# 长江有色网「长江现货」抓取 + 企微推送 配置
+#
+# 使用方式：
+#   cp config.example.yaml config.yaml   然后填入真实值
+#
+# ⚠️ config.yaml 含 webhook 凭据，已在 .gitignore 中排除，不要提交到仓库。
+#
+# 任意字符串支持 ${ENV_VAR} 环境变量插值，CI 中用 GitHub Secret 注入。
+# 支持 ${VAR:-默认值} 语法。
+
+# ── 抓取目标 ────────────────────────────────────────────────
+market: 长江现货          # 可选：长江现货 / 长江综合
+markets_all: false        # true = 忽略 market，导出全部市场（每市场一个 sheet）
+
+# ── 输出 ────────────────────────────────────────────────────
+output:
+  dir: output
+  # 占位符：{market} {date} {datetime}
+  filename: "ccmn_{market}_{datetime}.xlsx"
+  keep_days: 7            # 清理 N 天前的旧文件；0 = 不清理
+
+# ── 定时调度（本地 daemon 模式生效）─────────────────────────
+schedule:
+  # 标准 5 段 cron：分 时 日 月 周
+  #   "*/30 * * * *"  每 30 分钟
+  #   "30 10 * * *"   每天 10:30
+  #   "30 10 * * 1-5" 工作日 10:30
+  cron: "*/30 * * * *"
+  timezone: Asia/Shanghai
+  run_on_start: false     # 启动时先立刻跑一次
+
+# ── 企业微信机器人 ──────────────────────────────────────────
+wecom:
+  enabled: true
+  # 完整 webhook URL。CI 中由 ${WECOM_WEBHOOK_KEY} 注入 key
+  webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WECOM_WEBHOOK_KEY}"
+  send_summary: true      # 先发一条 markdown 行情摘要
+  send_file: true         # 再发 Excel 文件
+  summary_top_n: 10       # 摘要里展示的品名数量（按涨跌绝对值排序）
+  mention_all: false      # 摘要中 @所有人
+  notify_on_error: true   # 任务失败时往群里发一条告警（无人值守时别关）
+
+# ── 推送策略 ────────────────────────────────────────────────
+push:
+  # true = 数据与上次推送完全一致时跳过（每 30 分钟跑但数据每天只更新一次时很有用）
+  skip_if_unchanged: false
+  state_file: .push_state.json
+
+# ── 日志 ────────────────────────────────────────────────────
+log:
+  file: logs/ccmn.log
+  level: INFO             # DEBUG / INFO / WARNING / ERROR

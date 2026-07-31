@@ -1,0 +1,20 @@
+# ⚠️ 含 webhook 凭据，禁止提交
+config.yaml
+
+# 运行产物
+output/
+logs/
+*.xlsx
+.push_state.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# OS / 编辑器
+.DS_Store
+.idea/
+.vscode/
